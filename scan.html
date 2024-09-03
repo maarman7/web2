@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR Code Scanner</title>
+    <style>
+        #output {
+            margin-top: 20px;
+            font-size: 1.2em;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>QR Code Scanner Bot</h1>
+    <p id="output"></p>
+    
+
+    <!-- Include jsQR library for QR code scanning -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr"></script>
+    <!-- Include Bot Framework Web Chat -->
+    <script src="https://cdn.botframework.com/botframework-webchat/latest/webchat.js"></script>
+
+    <script>
+        let video = null;
+        const output = document.getElementById('output');
+
+        // DirectLine token (replace with your token)
+        const directLineToken = 'J8g2R3DM6Tk.S2qVgJwLGWMyxcAkFM7GA7aewrXFk2eGrLvpfPKG5lw';
+        
+        // Initialize Web Chat with Direct Line
+        const styleOptions = {
+            botAvatarInitials: 'Bot',
+            userAvatarInitials: 'You'
+        };
+
+        const directLine = window.WebChat.createDirectLine({ token: directLineToken });
+
+        window.WebChat.renderWebChat(
+            {
+                directLine,
+                styleOptions
+            },
+            document.body.appendChild(document.createElement('div'))
+        );
+
+        // Use the device camera to scan the QR code
+        async function startCamera() {
+            try {
+                video = document.createElement('video');
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                video.srcObject = stream;
+                video.setAttribute('playsinline', true); // required to tell iOS Safari we don't want fullscreen
+                video.play();
+                requestAnimationFrame(tick);
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+            }
+        }
+
+        // Read the QR code from the video stream
+        function tick() {
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const context = canvas.getContext('2d');
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: 'dontInvert',
+                });
+                if (code) {
+                    output.textContent = `QR Code scanned: ${code.data}`;
+                    sendScannedDataToBot(code.data);
+                    stopCamera();
+                } else {
+                    requestAnimationFrame(tick);
+                }
+            } else {
+                requestAnimationFrame(tick);
+            }
+        }
+
+        // Stop the camera
+        function stopCamera() {
+            const stream = video.srcObject;
+            const tracks = stream.getTracks();
+            tracks.forEach(track => track.stop());
+            video.srcObject = null;
+            video = null;
+        }
+
+        // Send scanned data to the bot
+        function sendScannedDataToBot(data) {
+            directLine.postActivity({
+                from: { id: 'user', name: 'You' },
+                type: 'message',
+                text: `scannedCode-${data}`
+            }).subscribe(
+                id => console.log(`Posted activity, assigned ID ${id}`),
+                error => console.log(`Error posting activity ${error}`)
+            );
+        }
+
+        // Start camera automatically when "scan" command is received
+        directLine.activity$
+        .filter(activity => activity.type === 'message' && activity.text === 'Scan QR code')
+        .subscribe(activity => {
+            startCamera();
+        });
+
+    </script>
+    
+</body>
+</html>
